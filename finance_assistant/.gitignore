@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+finance_env/
+env/
+venv/
+
+# Database & exports
+finance.db
+finance_assistant.db
+*.sqlite*
+finance_data_export.txt
+
+# IDE / OS
+.vscode/
+.DS_Store
+
+# Secrets
+.env
+*.pem
+*.key

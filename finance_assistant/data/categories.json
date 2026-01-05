@@ -1,0 +1,12 @@
+{
+    "Food & Dining": ["restaurant", "cafe", "food", "grocery", "supermarket", "dining", "coffee", "lunch", "dinner", "breakfast"],
+    "Transportation": ["uber", "lyft", "taxi", "gas", "fuel", "transport", "bus", "train", "metro", "subway", "parking", "toll"],
+    "Entertainment": ["movie", "netflix", "spotify", "concert", "game", "entertainment", "theater", "cinema", "music", "hobby"],
+    "Utilities": ["electric", "water", "gas", "internet", "phone", "utility", "electricity", "wifi", "mobile", "cable"],
+    "Shopping": ["amazon", "walmart", "target", "mall", "shopping", "store", "retail", "purchase", "buy", "market"],
+    "Healthcare": ["hospital", "doctor", "pharmacy", "medical", "health", "dental", "clinic", "insurance", "prescription"],
+    "Education": ["school", "university", "course", "book", "education", "tuition", "student", "learning", "training"],
+    "Salary": ["salary", "paycheck", "income", "payment", "pay", "wage", "earnings", "deposit"],
+    "Investment": ["stock", "investment", "dividend", "interest", "trade", "broker", "portfolio", "401k", "retirement"],
+    "Other": ["fee", "charge", "misc", "other", "unknown", "general"]
+}
