@@ -7,9 +7,18 @@ import os
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'finance-assistant-secret-key'
 
+# Absolute path for SQLite database file relative to this script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'finance.db')
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 # Initialize SQLite database
 def init_db():
-    conn = sqlite3.connect('finance.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     # Users table
@@ -40,7 +49,7 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print("✅ Database initialized successfully!")
+    print("[OK] Database initialized successfully!")
 
 @app.route('/')
 def home():
@@ -68,7 +77,7 @@ def register():
         if not data or not all(k in data for k in ['email', 'password', 'first_name', 'last_name']):
             return jsonify({'success': False, 'message': 'Missing required fields'}), 400
         
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         
         c.execute(
@@ -99,7 +108,7 @@ def add_transaction():
         if not data or not all(k in data for k in ['user_id', 'amount', 'type', 'category']):
             return jsonify({'success': False, 'message': 'Missing required fields'}), 400
         
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         
         c.execute('''
@@ -118,7 +127,7 @@ def add_transaction():
 @app.route('/api/analysis/<int:user_id>')
 def analyze_spending(user_id):
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         
         # Get spending by category
@@ -174,46 +183,115 @@ def analyze_spending(user_id):
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
+        user_query = data.get('query', '').strip()
+        user_id = data.get('user_id', 1)
         
-        if not data or 'query' not in data:
+        if not user_query:
             return jsonify({'success': False, 'message': 'Missing query'}), 400
+            
+        q_lower = user_query.lower()
+
+        # Query database for user's actual transactions
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
         
-        user_query = data.get('query', '').lower()
+        c.execute('''
+            SELECT category, SUM(amount) as total 
+            FROM transactions 
+            WHERE user_id = ? AND type = 'expense'
+            GROUP BY category
+        ''', (user_id,))
+        expense_rows = c.fetchall()
+        spending_by_category = {row[0]: abs(row[1]) for row in expense_rows}
         
-        # Enhanced rule-based chatbot
-        if any(word in user_query for word in ['spend', 'expense', 'where money', 'how much spent']):
-            response = "I can analyze your spending patterns. Use the analysis tab to see your spending by category and get personalized recommendations. I can also help you identify areas where you can save."
-        elif any(word in user_query for word in ['budget', 'limit']):
-            response = "I can help you create a budget! Based on the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Let me analyze your current spending to suggest realistic budget categories."
-        elif any(word in user_query for word in ['save', 'saving', 'invest']):
-            response = "💰 Financial wisdom suggests saving at least 20% of your income. I recommend: 1) Build an emergency fund (3-6 months expenses), 2) Pay off high-interest debt, 3) Invest for long-term goals. Would you like me to analyze your current savings rate?"
-        elif any(word in user_query for word in ['income', 'salary', 'earn']):
-            response = "I can track your income sources and help you optimize your earnings. Let me show you your income vs expenses analysis to identify opportunities for increasing your savings."
-        elif any(word in user_query for word in ['debt', 'loan', 'credit']):
+        c.execute('SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type = "income"', (user_id,))
+        total_income = c.fetchone()[0] or 0.0
+        
+        c.execute('SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type = "expense"', (user_id,))
+        total_expenses = abs(c.fetchone()[0] or 0.0)
+        
+        conn.close()
+        
+        net_savings = total_income - total_expenses
+        savings_rate = round((net_savings / total_income * 100), 1) if total_income > 0 else 0.0
+
+        # Match specific spending category in query
+        matched_category = None
+        for cat in spending_by_category.keys():
+            if cat.lower() in q_lower:
+                matched_category = cat
+                break
+        
+        if matched_category:
+            cat_amount = spending_by_category[matched_category]
+            pct = round((cat_amount / total_expenses * 100), 1) if total_expenses > 0 else 0
+            response = f"📊 You have spent <b>${cat_amount:,.2f}</b> on <b>{matched_category}</b>, which makes up <b>{pct}%</b> of your total expenses (${total_expenses:,.2f})."
+
+        elif any(word in q_lower for word in ['highest', 'most', 'top expense', 'where money']):
+            if spending_by_category:
+                top_cat = max(spending_by_category, key=spending_by_category.get)
+                top_amount = spending_by_category[top_cat]
+                pct = round((top_amount / total_expenses * 100), 1) if total_expenses > 0 else 0
+                response = f"🔝 Your highest spending category is <b>{top_cat}</b> at <b>${top_amount:,.2f}</b> ({pct}% of total expenses)."
+            else:
+                response = "You currently have no recorded expenses in the system. Click 'Add Sample Data' to load test transactions."
+
+        elif any(word in q_lower for word in ['spend', 'expense', 'how much spent', 'total spent']):
+            if total_expenses > 0:
+                top_3 = sorted(spending_by_category.items(), key=lambda x: x[1], reverse=True)[:3]
+                top_str = ", ".join([f"{cat}: ${amt:,.2f}" for cat, amt in top_3])
+                response = f"💳 Your total recorded expenses are <b>${total_expenses:,.2f}</b>. Your top categories are: {top_str}."
+            else:
+                response = "You currently have $0.00 in recorded expenses."
+
+        elif any(word in q_lower for word in ['income', 'salary', 'earned', 'earn']):
+            response = f"💰 Your total recorded income is <b>${total_income:,.2f}</b>. Net savings stand at <b>${net_savings:,.2f}</b>."
+
+        elif any(word in q_lower for word in ['save', 'saving', 'rate']):
+            if total_income > 0:
+                response = f"📈 Your current savings rate is <b>{savings_rate}%</b> (Net savings: <b>${net_savings:,.2f}</b> from income of <b>${total_income:,.2f}</b>). "
+                if savings_rate >= 20:
+                    response += "Excellent! You are maintaining a healthy savings rate above 20%."
+                else:
+                    response += "Try to aim for a savings rate of at least 20% by cutting discretionary spending."
+            else:
+                response = "No income recorded yet to calculate your savings rate."
+
+        elif any(word in q_lower for word in ['budget', 'limit']):
+            if total_income > 0:
+                response = f"💡 Based on your income of <b>${total_income:,.2f}</b>, the 50/30/20 budget allocates: <b>${total_income*0.5:,.2f}</b> for Needs (50%), <b>${total_income*0.3:,.2f}</b> for Wants (30%), and <b>${total_income*0.2:,.2f}</b> for Savings (20%)."
+            else:
+                response = "I can help you create a budget! Based on the 50/30/20 rule: 50% for needs, 30% for wants, and 20% for savings. Load your income to see your custom targets."
+
+        elif any(word in q_lower for word in ['debt', 'loan', 'credit']):
             response = "Managing debt is crucial! Focus on paying off high-interest debt first. Consider the avalanche method (highest interest first) or snowball method (smallest balance first)."
-        elif any(word in user_query for word in ['invest', 'stock', 'return']):
+
+        elif any(word in q_lower for word in ['invest', 'stock', 'return']):
             response = "For investing, consider: 1) Diversification across assets, 2) Long-term perspective, 3) Low-cost index funds, 4) Regular contributions. Remember: time in market beats timing the market!"
-        elif any(word in user_query for word in ['hello', 'hi', 'hey']):
-            response = "Hello! 👋 I'm your AI finance assistant. I can help you analyze spending, create budgets, optimize savings, and provide financial advice. What would you like to explore today?"
-        elif any(word in user_query for word in ['thank', 'thanks']):
-            response = "You're welcome! 😊 I'm here to help you achieve your financial goals. Is there anything else you'd like to know about your finances?"
+
+        elif any(word in q_lower for word in ['hello', 'hi', 'hey']):
+            response = "Hello! 👋 I'm your AI finance assistant. Ask me about your spending on specific categories (e.g., Food, Rent), your total expenses, or your savings rate!"
+
+        elif any(word in q_lower for word in ['thank', 'thanks']):
+            response = "You're welcome! 😊 Let me know if you need more analysis of your finances."
+
         else:
-            response = "I'm your AI finance assistant! 🤖 I can help with: • Spending analysis 📊 • Budget creation 💰 • Savings strategies 🏦 • Debt management 📉 • Investment basics 📈 • Financial goal planning 🎯 What would you like to explore?"
-        
+            response = f"🤖 Financial Summary for User #{user_id}: Total Income = <b>${total_income:,.2f}</b>, Total Expenses = <b>${total_expenses:,.2f}</b>, Net Savings = <b>${net_savings:,.2f}</b> ({savings_rate}% savings rate). Ask me about specific categories like Food or Rent!"
+
         return jsonify({
             'success': True,
             'query': user_query,
             'response': response,
             'suggestions': [
-                "Analyze my spending patterns",
-                "Help me create a budget", 
+                "How much did I spend on Food?",
+                "What is my highest expense?",
+                "What is my total spending?",
                 "Give me savings tips",
-                "Debt management advice",
-                "Investment basics"
+                "Help me create a budget"
             ]
         })
-    
+
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 400
 
@@ -221,7 +299,7 @@ def chat():
 def add_sample_data():
     """Add sample data for testing"""
     try:
-        conn = sqlite3.connect('finance.db')
+        conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         
         # First, ensure we have a user
@@ -263,9 +341,9 @@ def add_sample_data():
 
 if __name__ == '__main__':
     init_db()
-    print("🚀 AI Finance Assistant starting...")
-    print("📍 Web Interface: http://localhost:5000")
-    print("📚 API Endpoints:")
+    print("AI Finance Assistant starting...")
+    print("Web Interface: http://localhost:5000")
+    print("API Endpoints:")
     print("   GET  /                      - Web interface")
     print("   GET  /api/                  - API information")
     print("   POST /api/register          - Register new user")
@@ -273,6 +351,5 @@ if __name__ == '__main__':
     print("   GET  /api/analysis/<id>     - Get spending analysis")
     print("   POST /api/chat              - Chat with AI assistant")
     print("   POST /api/sample-data       - Add sample data for testing")
-    print("\n💡 Open http://localhost:5000 in your browser to use the web interface!")
-    app.run(debug=True, host='0.0.0.0', port=5000)
-    
+    print("\nOpen http://localhost:5000 in your browser to use the web interface!")
+    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

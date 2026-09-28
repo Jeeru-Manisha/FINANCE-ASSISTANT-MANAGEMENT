@@ -1,27 +1,24 @@
-# Python
+# Byte-compiled / optimized files
 __pycache__/
 *.py[cod]
-*.egg-info/
-dist/
-build/
+*$py.class
+
+# Database files
+*.db
+finance.db
 
 # Virtual environments
-.venv/
-finance_env/
-env/
 venv/
+finance_env/
+.venv/
+env/
+ENV/
 
-# Database & exports
-finance.db
-finance_assistant.db
-*.sqlite*
-finance_data_export.txt
-
-# IDE / OS
-.vscode/
-.DS_Store
-
-# Secrets
+# Environment variables
 .env
-*.pem
-*.key
+
+# IDE & OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
