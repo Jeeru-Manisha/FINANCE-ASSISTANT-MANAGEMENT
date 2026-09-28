@@ -7,6 +7,13 @@ import os
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'finance-assistant-secret-key'
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    return response
+
 # Absolute path for SQLite database file relative to this script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'finance.db')
