@@ -975,6 +975,9 @@
                     setTimeout(() => {
                         notification.remove();
                     }, 3000);
+
+                    // Auto-refresh the Quick Analysis card on screen
+                    getAnalysis();
                 } else {
                     alert('❌ Failed to add sample data');
                 }
